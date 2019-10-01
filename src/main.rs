@@ -3,9 +3,8 @@ use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{BufReader};
+use std::io::BufReader;
 use std::ops::BitXor;
-
 
 fn char_freqs_ref(c: char) -> Option<f32> {
     let ref_word_length = 4.7;
@@ -157,16 +156,13 @@ fn ex4() {
     let filename = "data/ex1-4.txt";
 
     match File::open(filename) {
-        Err(_) => {
-            println!("Could not read file: {}\nCheck that it exists?", filename);
-        },
+        Err(_) => println!("[Error] Failed to read file: {}", filename),
         Ok(f) => {
-
             let file_reader = BufReader::new(f);
 
             let mut strings_and_scores = Vec::new();
 
-            let mut line_number= 0;
+            let mut line_number = 0;
 
             for line in file_reader.lines() {
                 line_number += 1;
@@ -175,9 +171,10 @@ fn ex4() {
 
                 match hex_msg_to_scored_strings(&hex_str) {
                     Ok(mut scores) => strings_and_scores.append(&mut scores),
-                    Err(_) => {
-                        println!("[Error] Failed to parse hex string \"{}\" at line {}", hex_str, line_number)
-                    }
+                    Err(_) => println!(
+                        "[Error] Failed to parse hex string \"{}\" at line {}",
+                        hex_str, line_number
+                    ),
                 }
             }
 
@@ -194,10 +191,8 @@ fn ex4() {
             println!("Found winner!");
             println!("Decrypted Message: {:?}", winner.decrypted_msg);
             println!("Encrypted with key: \"{}\"", winner.key);
-
         }
     }
-
 }
 
 fn main() {

@@ -1,36 +1,44 @@
 use hex;
-use std::collections::HashMap;
-use std::ops::BitXor;
 use std::cmp::Ordering::Equal;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::{BufReader};
+use std::ops::BitXor;
+
 
 fn char_freqs_ref(c: char) -> Option<f32> {
+    let ref_word_length = 4.7;
+    let ws_factor = ref_word_length / (ref_word_length + 1.0);
+
     match c {
-        'E' => Some(2.02),
-        'T' => Some(9.02),
-        'A' => Some(8.12),
-        'O' => Some(7.68),
-        'I' => Some(7.31),
-        'N' => Some(6.95),
-        'S' => Some(6.28),
-        'R' => Some(6.02),
-        'H' => Some(5.92),
-        'D' => Some(4.32),
-        'L' => Some(3.98),
-        'U' => Some(2.88),
-        'C' => Some(2.71),
-        'M' => Some(2.61),
-        'F' => Some(2.30),
-        'Y' => Some(2.11),
-        'W' => Some(2.09),
-        'G' => Some(2.03),
-        'P' => Some(1.82),
-        'B' => Some(1.49),
-        'V' => Some(1.11),
-        'K' => Some(0.69),
-        'X' => Some(0.17),
-        'Q' => Some(0.11),
-        'J' => Some(0.10),
-        'Z' => Some(0.07),
+        ' ' => Some(100.0 / (ref_word_length + 1.0)),
+        'E' => Some(12.02 * ws_factor),
+        'T' => Some(9.02 * ws_factor),
+        'A' => Some(8.12 * ws_factor),
+        'O' => Some(7.68 * ws_factor),
+        'I' => Some(7.31 * ws_factor),
+        'N' => Some(6.95 * ws_factor),
+        'S' => Some(6.28 * ws_factor),
+        'R' => Some(6.02 * ws_factor),
+        'H' => Some(5.92 * ws_factor),
+        'D' => Some(4.32 * ws_factor),
+        'L' => Some(3.98 * ws_factor),
+        'U' => Some(2.88 * ws_factor),
+        'C' => Some(2.71 * ws_factor),
+        'M' => Some(2.61 * ws_factor),
+        'F' => Some(2.30 * ws_factor),
+        'Y' => Some(2.11 * ws_factor),
+        'W' => Some(2.09 * ws_factor),
+        'G' => Some(2.03 * ws_factor),
+        'P' => Some(1.82 * ws_factor),
+        'B' => Some(1.49 * ws_factor),
+        'V' => Some(1.11 * ws_factor),
+        'K' => Some(0.69 * ws_factor),
+        'X' => Some(0.17 * ws_factor),
+        'Q' => Some(0.11 * ws_factor),
+        'J' => Some(0.10 * ws_factor),
+        'Z' => Some(0.07 * ws_factor),
         _ => None,
     }
 }
@@ -73,26 +81,16 @@ fn repeated_key_xor(bytes: &Vec<u8>, key: &Vec<u8>) -> Vec<u8> {
 }
 
 fn get_char_freqs(msg: &String) -> HashMap<char, f32> {
-    let filtered_msg = msg
-        .chars()
-        .filter(|c| c.is_ascii_alphabetic())
-        .collect::<Vec<char>>();
-    let counter = 100.0 / filtered_msg.len() as f32;
+    let increment_size = 100.0 / msg.len() as f32;
     let mut char_freqs = HashMap::new();
 
-    for c in filtered_msg {
+    for c in msg.chars() {
         let upcase_c = c.to_ascii_uppercase();
-        match char_freqs.get_mut(&upcase_c) {
-            Some(x) => {
-                *x += counter;
-            }
-            None => {
-                char_freqs.insert(upcase_c, counter);
-            }
-        }
+        let counter = char_freqs.entry(upcase_c).or_insert(0.0);
+        *counter += increment_size;
     }
 
-    return char_freqs;
+    char_freqs
 }
 
 fn get_score(msg: &String) -> f32 {
@@ -106,7 +104,6 @@ fn get_score(msg: &String) -> f32 {
     return summed_scores.sqrt();
 }
 
-
 #[allow(dead_code)]
 fn ex2() {
     let bytes1 = hex::decode("1c0111001f010100061a024b53535009181c").unwrap();
@@ -116,31 +113,95 @@ fn ex2() {
     println!("The final result: {} ", hex::encode(result));
 }
 
+#[derive(Debug)]
+struct ScoredString {
+    decrypted_msg: String,
+    key: String,
+    score: f32,
+}
+
 #[allow(dead_code)]
 fn ex3() {
-    let encoded_bytes =
-        hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736")
-            .unwrap();
+    let hex_str = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
 
-    let mut strings_and_scores: Vec<(String, char, f32)> = (b'A'..b'Z').map( |key| {
-        let decrypted_bytes = repeated_key_xor(&encoded_bytes, &vec![key]);
-        let decrypted_str = String::from_utf8(decrypted_bytes).unwrap();
-        let score = get_score(&decrypted_str);
+    let mut strings_and_scores = hex_msg_to_scored_strings(&hex_str).unwrap();
 
-        (decrypted_str, key as char, score)
-    }).collect();
-
-    strings_and_scores.sort_by(|(_, _, s1), (_, _, s2)|
-        s1.partial_cmp(s2).unwrap_or(Equal)
-    );
+    strings_and_scores.sort_by(|s1, s2| s1.score.partial_cmp(&s2.score).unwrap_or(Equal));
 
     let winner = &strings_and_scores[0];
 
-    println!( "Decrypted Message: \"{}\"", winner.0);
-    println!( "Found with key: {}", winner.1);
+    println!("Decrypted Message: \"{}\"", winner.decrypted_msg);
+    println!("Found with key: {}", winner.key);
+    println!("{:#?}", &strings_and_scores[0..6]);
+}
+
+fn hex_msg_to_scored_strings(hex_msg: &str) -> Result<Vec<ScoredString>, hex::FromHexError> {
+    let encrypted_bytes = hex::decode(hex_msg)?;
+
+    // Map over all characters (potential keys)
+    Ok((b' '..b'~' + 1)
+        .filter_map(|key| {
+            let decrypted_bytes = repeated_key_xor(&encrypted_bytes, &vec![key]);
+            String::from_utf8(decrypted_bytes)
+                .ok()
+                .map(|decrypted_msg| ScoredString {
+                    score: get_score(&decrypted_msg),
+                    decrypted_msg: decrypted_msg,
+                    key: (key as char).to_string(),
+                })
+        })
+        .collect())
+}
+
+fn ex4() {
+    let filename = "data/ex1-4.txt";
+
+    match File::open(filename) {
+        Err(_) => {
+            println!("Could not read file: {}\nCheck that it exists?", filename);
+        },
+        Ok(f) => {
+
+            let file_reader = BufReader::new(f);
+
+            let mut strings_and_scores = Vec::new();
+
+            let mut line_number= 0;
+
+            for line in file_reader.lines() {
+                line_number += 1;
+
+                let hex_str = line.unwrap();
+
+                match hex_msg_to_scored_strings(&hex_str) {
+                    Ok(mut scores) => strings_and_scores.append(&mut scores),
+                    Err(_) => {
+                        println!("[Error] Failed to parse hex string \"{}\" at line {}", hex_str, line_number)
+                    }
+                }
+            }
+
+            println!(
+                "Ranking {} strings_and_scores over {} hex encoded strings...",
+                strings_and_scores.len(),
+                line_number
+            );
+
+            strings_and_scores.sort_by(|s1, s2| s1.score.partial_cmp(&s2.score).unwrap_or(Equal));
+
+            let winner = &strings_and_scores[0];
+
+            println!("Found winner!");
+            println!("Decrypted Message: {:?}", winner.decrypted_msg);
+            println!("Encrypted with key: \"{}\"", winner.key);
+
+        }
+    }
+
 }
 
 fn main() {
     //ex2();
-    ex3();
+    //ex3();
+    ex4();
 }

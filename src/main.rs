@@ -1,4 +1,10 @@
+mod error;
+
+use base64;
+use bit_vec;
+use error::AppError;
 use hex;
+use itertools::Itertools;
 use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
 use std::fs::File;
@@ -112,10 +118,10 @@ fn ex2() {
     println!("The final result: {} ", hex::encode(result));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ScoredString {
     decrypted_msg: String,
-    key: String,
+    key: char,
     score: f32,
 }
 
@@ -146,12 +152,32 @@ fn hex_msg_to_scored_strings(hex_msg: &str) -> Result<Vec<ScoredString>, hex::Fr
                 .map(|decrypted_msg| ScoredString {
                     score: get_score(&decrypted_msg),
                     decrypted_msg: decrypted_msg,
-                    key: (key as char).to_string(),
+                    key: (key as char),
                 })
         })
         .collect())
 }
 
+fn break_single_char_xor(cyphertext: &Vec<u8>) -> Result<ScoredString, AppError> {
+    let mut scores: Vec<ScoredString> = (b' '..b'~' + 1)
+        .filter_map(|key| {
+            let decrypted_bytes = repeated_key_xor(cyphertext, &vec![key]);
+            String::from_utf8(decrypted_bytes)
+                .ok()
+                .map(|decrypted_msg| ScoredString {
+                    score: get_score(&decrypted_msg),
+                    decrypted_msg: decrypted_msg,
+                    key: (key as char),
+                })
+        })
+        .collect();
+
+    scores.sort_by(|s1, s2| s1.score.partial_cmp(&s2.score).unwrap_or(Equal));
+
+    Ok(scores[0].clone())
+}
+
+#[allow(dead_code)]
 fn ex4() {
     let filename = "data/ex1-4.txt";
 
@@ -195,8 +221,113 @@ fn ex4() {
     }
 }
 
-fn main() {
+#[allow(dead_code)]
+fn ex5() {
+    let text = "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal";
+
+    let key = "ICE";
+
+    let encrypted_text = repeated_key_xor(&text.as_bytes().to_vec(), &key.as_bytes().to_vec());
+
+    println!("{}", hex::encode(encrypted_text));
+}
+
+fn read_base64_from_file(filename: &str) -> Result<Vec<u8>, AppError> {
+    let f = File::open(filename)?;
+
+    let file_reader = BufReader::new(f);
+
+    let mut data = String::new();
+
+    for line in file_reader.lines() {
+        data.extend(line);
+    }
+
+    let bytes = base64::decode(&data)?;
+
+    Ok(bytes)
+}
+
+fn hamming_distance(s1: Vec<u8>, s2: Vec<u8>) -> u32 {
+    let ByteArray(xord_bytes) = ByteArray(s1) ^ ByteArray(s2);
+
+    let bits = bit_vec::BitVec::from_bytes(xord_bytes.as_slice());
+
+    bits.iter().fold(0, |acc, x| acc + (x as u32))
+}
+
+fn key_size_score(key_size: usize, data: &Vec<u8>) -> f32 {
+    let sample_size_bytes = 16;
+
+    let mut pair_scores = Vec::new();
+
+    let mut num_combinations = 0;
+
+    for (i, j) in (0..sample_size_bytes).tuple_combinations() {
+        num_combinations += 1;
+        let s1 = data[i * key_size..(i + 1) * key_size].to_vec();
+        let s2 = data[j * key_size..(j + 1) * key_size].to_vec();
+
+        pair_scores.push(hamming_distance(s1, s2));
+    }
+
+    (pair_scores.iter().sum::<u32>() as f32) / ((key_size * num_combinations) as f32)
+}
+
+fn find_key_size(data: &Vec<u8>, min_key_size: usize, max_key_size: usize) -> usize {
+    let mut scorings = (min_key_size..max_key_size)
+        .map(|ks| (ks, key_size_score(ks, &data)))
+        .collect::<Vec<(usize, f32)>>();
+
+    scorings.sort_by(|s1, s2| s1.1.partial_cmp(&s2.1).unwrap_or(Equal));
+
+    scorings[0].0
+}
+
+fn break_repeating_key_xor(cyphertext: &Vec<u8>) -> Result<Vec<u8>, AppError> {
+    let key_size = find_key_size(&cyphertext, 1, 50);
+
+    // create a series of n transposed cyphertexts, where each new cyphertext
+    // is encrypted with a single_char_xor, corresponding to the ith character
+    // in the key
+    let mut owned_cyphertext = cyphertext.clone();
+    owned_cyphertext.reverse();
+    let mut transposed_cyphertexts = vec![Vec::new(); key_size];
+    'transposition: loop {
+        for tc in &mut transposed_cyphertexts {
+            match owned_cyphertext.pop() {
+                Some(byte) => tc.push(byte),
+                None => break 'transposition,
+            }
+        }
+    }
+
+    // for each transposed cyphertext, find the single char encyrption key
+    let my_key = transposed_cyphertexts
+        .iter()
+        .map(|tc| break_single_char_xor(tc).map(|scored_string| scored_string.key))
+        .collect::<Result<String, _>>()?;
+
+    Ok(repeated_key_xor(cyphertext, &my_key.as_bytes().to_vec()))
+}
+
+#[allow(dead_code)]
+fn ex6() -> Result<(), AppError> {
+    let data = read_base64_from_file("data/ex1-6.txt")?;
+
+    let message_bytes = break_repeating_key_xor(&data).unwrap();
+    let message_str = String::from_utf8(message_bytes).unwrap();
+
+    println!("Big file: {} bytes to be exact!", data.len());
+    println!("Decrypted message:");
+    println!("{}", message_str);
+
+    Ok(())
+}
+
+fn main() -> Result<(), AppError> {
     //ex2();
     //ex3();
-    ex4();
+    //ex4();
+    ex6()
 }

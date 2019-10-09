@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 
+mod crack;
 mod error;
-mod xor;
-mod exercises;
+mod cipher;
+mod utils;
+mod set1;
+mod set2;
 
 fn main() {
     
-    exercises::exercise_7();
-    //println!("Run some tests (cargo test)!");
+    set2::test_exercise();
 }

@@ -1,9 +1,8 @@
-use crate::xor::*;
-
 use hex;
 
 #[allow(dead_code)]
 pub fn ex2() {
+    use crate::utils::ByteArray;
     let bytes1 = hex::decode("1c0111001f010100061a024b53535009181c").unwrap();
     let bytes2 = hex::decode("686974207468652062756c6c277320657965").unwrap();
 
@@ -13,6 +12,8 @@ pub fn ex2() {
 
 #[test]
 fn exercise_3() {
+    use crate::crack::xor::break_single_char_xor;
+
     let hex_str = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
 
     let encrypted_bytes = hex::decode(hex_str).unwrap();
@@ -27,12 +28,13 @@ fn exercise_3() {
 
 #[test]
 fn exercise_4() {
+    use crate::crack::xor::{break_single_char_xor, ScoredString};
     use std::cmp::Ordering::Equal;
     use std::fs::File;
     use std::io::prelude::*;
     use std::io::BufReader;
 
-    let filename = "data/ex1-4.txt";
+    let filename = "data/4.txt";
 
     match File::open(filename) {
         Err(_) => println!("[Error] Failed to read file: {}", filename),
@@ -55,12 +57,6 @@ fn exercise_4() {
                 })
                 .collect::<Vec<(String, ScoredString)>>();
 
-            println!(
-                "Ranking {} strings_and_scores over {} hex encoded strings...",
-                candidates.len(),
-                line_number
-            );
-
             candidates.sort_by(|s1, s2| s1.1.score.partial_cmp(&s2.1.score).unwrap_or(Equal));
 
             let winner = &candidates[0];
@@ -81,6 +77,7 @@ fn exercise_4() {
 
 #[test]
 fn exercise_5() {
+    use crate::cipher::xor::repeated_key_xor;
     let text = "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal";
 
     let key = "ICE";
@@ -92,14 +89,16 @@ fn exercise_5() {
 
 #[test]
 fn exercise_6() {
+    use crate::crack::xor::break_repeating_key_xor;
+    use crate::utils::read_and_decode_base64_file;
     use std::fs::File;
     use std::io::Read;
-    let data = read_and_decode_base64_file("data/ex1-6.txt").unwrap();
+    let data = read_and_decode_base64_file("data/6.txt").unwrap();
 
     let message_bytes = break_repeating_key_xor(&data).unwrap().1;
     let message_str = String::from_utf8(message_bytes).unwrap();
 
-    let mut file = File::open("data/ex1-6-cracked.txt").unwrap();
+    let mut file = File::open("data/funky-lyrics.txt").unwrap();
     let mut cracked_text = String::new();
     file.read_to_string(&mut cracked_text).unwrap();
 
@@ -108,7 +107,57 @@ fn exercise_6() {
     assert_eq!(message_str, cracked_text);
 }
 
-pub fn exercise_7() {
-    println!("something");
+#[test]
+fn exercise_7() {
+    use crate::cipher::aes;
+    use crate::utils::read_and_decode_base64_file;
+    use std::fs::File;
+    use std::io::Read;
 
+    let ciphertext = read_and_decode_base64_file("data/7.txt").unwrap();
+
+    let decrypted_bytes = aes::ecb_decrypt(b"YELLOW SUBMARINE", &ciphertext).unwrap();
+
+    let mut file = File::open("data/funky-lyrics.txt").unwrap();
+    let mut cracked_text = String::new();
+    file.read_to_string(&mut cracked_text).unwrap();
+
+    assert_eq!(String::from_utf8(decrypted_bytes).unwrap(), cracked_text);
+}
+
+#[test]
+fn exercise_8() {
+    use crate::crack::aes;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::io::BufReader;
+    let filename = "data/8.txt";
+
+    let f = File::open(filename).unwrap();
+
+    let br = BufReader::new(f);
+
+    let mut line_number = 0;
+
+    let candidates: Vec<Vec<u8>> = br
+        .lines()
+        .filter_map(|line| {
+            line_number += 1;
+
+            let hex_str = line.unwrap();
+
+            let encrypted_bytes = hex::decode(&hex_str).unwrap();
+
+            if aes::prob_ecb_encrypted(&encrypted_bytes) {
+                return Some(encrypted_bytes);
+            } else {
+                return None;
+            }
+        })
+        .collect();
+
+    assert_eq!(
+        hex::encode(&candidates[0]),
+        String::from("d880619740a8a19b7840a8a31c810a3d08649af70dc06f4fd5d2d69c744cd283e2dd052f6b641dbf9d11b0348542bb5708649af70dc06f4fd5d2d69c744cd2839475c9dfdbc1d46597949d9c7e82bf5a08649af70dc06f4fd5d2d69c744cd28397a93eab8d6aecd566489154789a6b0308649af70dc06f4fd5d2d69c744cd283d403180c98c8f6db1f2a3f9c4040deb0ab51b29933f2c123c58386b06fba186a")
+    );
 }

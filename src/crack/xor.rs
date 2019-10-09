@@ -1,67 +1,16 @@
+use crate::cipher::xor::{repeated_key_xor, single_char_xor};
 use crate::error::AppError;
-use base64;
-use bit_vec;
+use crate::utils::ByteArray;
+use bit_vec::BitVec;
 use itertools::Itertools;
 use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::ops::BitXor;
-use std::panic;
-
-type Byte = u8;
-
-#[derive(Debug, PartialEq)]
-pub struct ByteArray(pub Vec<Byte>);
-
-impl BitXor for ByteArray {
-    type Output = Self;
-
-    fn bitxor(self, ByteArray(rhs): Self) -> Self::Output {
-        let ByteArray(lhs) = self;
-        if lhs.len() != rhs.len() {
-            panic!("Cannot perform `^` (bitxor) on ByteArrays of different length")
-        } else {
-            let res = lhs.iter().zip(rhs.iter()).map(|(x, y)| (x ^ y)).collect();
-            ByteArray(res)
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ScoredString {
     pub decrypted_msg: String,
     pub key: char,
     pub score: f32,
-}
-
-fn single_char_xor(bytes: &Vec<Byte>, key: Byte) -> Vec<Byte> {
-    let repeated_key = vec![key; bytes.len()];
-
-    let ByteArray(xord_bytes) = ByteArray(bytes.to_owned()) ^ ByteArray(repeated_key);
-
-    return xord_bytes;
-}
-
-pub fn repeated_key_xor(bytes: &Vec<Byte>, key: &Vec<Byte>) -> Vec<Byte> {
-    let key_length = key.len();
-    let bytes_length = bytes.len();
-
-    let key_repeat = bytes_length / key_length;
-    let key_remainder = bytes_length % key_length;
-
-    let mut repeated_key = Vec::with_capacity(bytes_length);
-
-    for _ in 0..key_repeat {
-        repeated_key.extend(key);
-    }
-
-    repeated_key.extend(&key[0..key_remainder]);
-
-    let ByteArray(xord_bytes) = ByteArray(bytes.to_owned()) ^ ByteArray(repeated_key.to_owned());
-
-    return xord_bytes;
 }
 
 pub fn get_english_distance(msg: &str) -> f32 {
@@ -121,7 +70,7 @@ pub fn get_english_distance(msg: &str) -> f32 {
     return summed_scores.sqrt();
 }
 
-pub fn break_single_char_xor(cyphertext: &Vec<Byte>) -> Option<ScoredString> {
+pub fn break_single_char_xor(cyphertext: &[u8]) -> Option<ScoredString> {
     let mut scores: Vec<ScoredString> = (b' '..b'~' + 1)
         .filter_map(|key| {
             let decrypted_bytes = single_char_xor(cyphertext, key);
@@ -144,15 +93,15 @@ pub fn break_single_char_xor(cyphertext: &Vec<Byte>) -> Option<ScoredString> {
     }
 }
 
-fn hamming_distance(s1: Vec<Byte>, s2: Vec<Byte>) -> u32 {
-    let ByteArray(xord_bytes) = ByteArray(s1) ^ ByteArray(s2);
+fn key_size_score(key_size: usize, data: &[u8]) -> f32 {
+    fn hamming_distance(s1: &[u8], s2: &[u8]) -> u32 {
+        let ByteArray(xord_bytes) = ByteArray(s1.to_vec()) ^ ByteArray(s2.to_vec());
 
-    let bits = bit_vec::BitVec::from_bytes(xord_bytes.as_slice());
+        let bits = BitVec::from_bytes(xord_bytes.as_slice());
 
-    bits.iter().fold(0, |acc, x| acc + (x as u32))
-}
+        bits.iter().fold(0, |acc, x| acc + (x as u32))
+    }
 
-fn key_size_score(key_size: usize, data: &Vec<Byte>) -> f32 {
     let sample_size_bytes = 16;
 
     let mut pair_scores = Vec::new();
@@ -161,8 +110,8 @@ fn key_size_score(key_size: usize, data: &Vec<Byte>) -> f32 {
 
     for (i, j) in (0..sample_size_bytes).tuple_combinations() {
         num_combinations += 1;
-        let s1 = data[i * key_size..(i + 1) * key_size].to_vec();
-        let s2 = data[j * key_size..(j + 1) * key_size].to_vec();
+        let s1 = &data[i * key_size..(i + 1) * key_size];
+        let s2 = &data[j * key_size..(j + 1) * key_size];
 
         pair_scores.push(hamming_distance(s1, s2));
     }
@@ -170,7 +119,7 @@ fn key_size_score(key_size: usize, data: &Vec<Byte>) -> f32 {
     (pair_scores.iter().sum::<u32>() as f32) / ((key_size * num_combinations) as f32)
 }
 
-fn find_key_size(data: &Vec<Byte>, min_key_size: usize, max_key_size: usize) -> usize {
+fn find_key_size(data: &[u8], min_key_size: usize, max_key_size: usize) -> usize {
     let mut scorings = (min_key_size..max_key_size)
         .map(|ks| (ks, key_size_score(ks, &data)))
         .collect::<Vec<(usize, f32)>>();
@@ -180,13 +129,13 @@ fn find_key_size(data: &Vec<Byte>, min_key_size: usize, max_key_size: usize) -> 
     scorings[0].0
 }
 
-pub fn break_repeating_key_xor(cyphertext: &Vec<Byte>) -> Result<(String, Vec<Byte>), AppError> {
+pub fn break_repeating_key_xor(cyphertext: &[u8]) -> Result<(String, Vec<u8>), AppError> {
     let key_size = find_key_size(&cyphertext, 1, 50);
 
     // create a series of n transposed cyphertexts, where each new cyphertext
     // is encrypted with a single_char_xor, corresponding to the ith character
     // in the key
-    let mut owned_cyphertext = cyphertext.clone();
+    let mut owned_cyphertext = cyphertext.to_vec();
     owned_cyphertext.reverse();
     let mut transposed_cyphertexts = vec![Vec::new(); key_size];
     'transposition: loop {
@@ -204,29 +153,11 @@ pub fn break_repeating_key_xor(cyphertext: &Vec<Byte>) -> Result<(String, Vec<By
         .map(|tc| {
             break_single_char_xor(tc)
                 .map(|result| result.key)
-                .expect({
-                    &format!("Cannot decrypt {:?} with break_single_char_xor",tc)
-                })
+                .expect({ &format!("Cannot decrypt {:?} with break_single_char_xor", tc) })
         })
         .collect::<String>();
 
     let decrypted_msg = repeated_key_xor(cyphertext, &key.as_bytes().to_vec());
 
     Ok((key, decrypted_msg))
-}
-
-pub fn read_and_decode_base64_file(filename: &str) -> Result<Vec<Byte>, AppError> {
-    let f = File::open(filename)?;
-
-    let file_reader = BufReader::new(f);
-
-    let mut data = String::new();
-
-    for line in file_reader.lines() {
-        data.extend(line);
-    }
-
-    let bytes = base64::decode(&data)?;
-
-    Ok(bytes)
 }

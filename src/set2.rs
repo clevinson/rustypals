@@ -1,5 +1,3 @@
-use openssl::error::ErrorStack;
-
 #[test]
 fn exercise_9() {
     use super::cipher::aes;
@@ -68,99 +66,41 @@ fn exercise_11() {
 
 #[test]
 fn exercise_12() {
-    use crate::crack::aes::{blackbox_ecb, detect_cipher_mode, guess_ecb_blocksize_up_to};
+    use crate::crack::aes::{
+        blackbox_ecb, crack_aes_ecb, detect_cipher_mode, guess_ecb_blocksize_up_to, CipherMode,
+    };
 
     let block_size = guess_ecb_blocksize_up_to(30, blackbox_ecb).unwrap();
-    println!("Guessing blocksize of: {:?}", block_size);
-    let cipher_mode = detect_cipher_mode(blackbox_ecb).unwrap();
-    println!("Guessing cipher mode of: {:?}", cipher_mode);
-    let cracked_msg = String::from_utf8(crack_aes_ecb(block_size, blackbox_ecb).unwrap()).unwrap();
-    println!("    Cracked the Code!");
-    println!("    =================");
-    println!("     =============== ");
-    println!("      =============  ");
-    println!("       ===========   ");
-    println!("       ===========   ");
-    println!("        =========    ");
-    println!("         =======     ");
-    println!("         =======     ");
-    println!("         =======     ");
-    println!("          =====      ");
-    println!("          =====      ");
-    println!("           ===       ");
-    println!("           ===       ");
-    println!("           ===       ");
-    println!("            =        ");
-    println!("            =        ");
-    println!("            =        ");
-    println!("            =        ");
-    println!("            v        ");
-    println!("");
-    println!("");
-    println!("{}", cracked_msg);
+    assert_eq!(block_size, 16);
 
-    let ex_12_poem = "Rollin' in my 5.0\nWith my rag-top down so my hair can blow\n\
-        The girlies on standby waving just to say hi\nDid you stop? No, I just drove by\n";
+    let cipher_mode = detect_cipher_mode(blackbox_ecb).unwrap();
+    assert_eq!(cipher_mode, CipherMode::ECB);
+
+    let cracked_bytes = crack_aes_ecb(block_size, blackbox_ecb).unwrap();
+    let cracked_msg = String::from_utf8(cracked_bytes).unwrap();
+
+    let ex_12_poem =
+        "Rollin' in my 5.0\nWith my rag-top down so my hair can blow\n\
+         The girlies on standby waving just to say hi\nDid you stop? No, I just drove by\n";
 
     assert_eq!(ex_12_poem, cracked_msg);
 }
 
-fn crack_aes_ecb(
-    blocksize: usize,
-    blackbox: fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
-) -> Result<Vec<u8>, ErrorStack> {
-    let mut collected_result: Vec<u8> = Vec::new();
+#[test]
+fn exercise_13() {
+    use crate::user_profile::{UserProfile, UserRole};
+    use std::str::FromStr;
 
-    loop {
-        let block_offset = collected_result.len() / blocksize;
-        let prefix_length = blocksize - 1 - (collected_result.len() % blocksize);
-        let prefix = vec![0; prefix_length];
+    let input_str = "email=foobar@baz.com&uid=23&role=admin";
+    let profile = UserProfile::from_str(input_str).unwrap();
 
-        let encrypted_bytes = blackbox(&prefix)?;
-        let encrypted_block =
-            encrypted_bytes[blocksize * block_offset..blocksize * (block_offset + 1)].to_vec();
-
-        let dict_prefix = if block_offset == 0 {
-            let mut dp = prefix.clone();
-            dp.extend(&collected_result);
-            dp
-        } else {
-            let start_index = blocksize * block_offset - prefix_length;
-            collected_result[start_index..].to_vec()
-        };
-
-        let dict = get_crack_block_dict(&dict_prefix, blackbox);
-
-        let next_byte = dict.get(&encrypted_block).cloned().unwrap();
-
-        if next_byte == 1 {
-            return Ok(collected_result);
+    assert_eq!(
+        profile,
+        UserProfile {
+            email: "foobar@baz.com".to_string(),
+            uid: 23,
+            role: UserRole::Admin
         }
+    );
 
-        collected_result.push(next_byte);
-    }
-}
-
-use std::collections::HashMap;
-
-fn get_crack_block_dict(
-    prefix: &[u8],
-    blackbox: fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
-) -> HashMap<Vec<u8>, u8> {
-    let mut prefix = prefix.to_vec();
-
-    let mut dict: HashMap<Vec<u8>, u8> = HashMap::new();
-
-    for b in 0..128 {
-        prefix.push(b);
-
-        let encrypted_bytes = blackbox(&prefix).unwrap();
-
-        let first_block = encrypted_bytes[0..prefix.len()].to_vec();
-
-        dict.insert(first_block, b);
-        prefix.pop();
-    }
-
-    dict
 }

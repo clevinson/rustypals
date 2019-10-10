@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod user_profile;
 mod crack;
 mod error;
 mod cipher;

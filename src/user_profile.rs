@@ -1,3 +1,6 @@
+use crate::cipher::aes::{ecb_decrypt, ecb_encrypt};
+use crate::crack::aes::deterministic_key;
+use openssl::error::ErrorStack;
 use std::error;
 use std::fmt;
 use std::str::FromStr;
@@ -13,6 +16,57 @@ pub struct UserProfile {
 pub enum UserRole {
     Admin,
     User,
+}
+
+pub fn encryption_key() -> Vec<u8> {
+    deterministic_key(16, 8889)
+}
+
+impl UserProfile {
+    pub fn to_string(&self) -> String {
+        [
+            ["email", &self.email].join("="),
+            ["uid", &self.uid.to_string()].join("="),
+            [
+                "role",
+                match self.role {
+                    UserRole::Admin => "admin",
+                    UserRole::User => "user",
+                },
+            ]
+            .join("="),
+        ]
+        .join("&")
+    }
+
+    pub fn encrypt(&self, aes_key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+        let data = self.to_string();
+        ecb_encrypt(aes_key, data.as_bytes())
+    }
+
+    pub fn decrypt(aes_key: &[u8], data: &[u8]) -> Option<UserProfile> {
+        ecb_decrypt(aes_key, data)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|up_string| up_string.parse::<UserProfile>().ok())
+    }
+
+    pub fn profile_for(email: &str) -> UserProfile {
+        UserProfile {
+            email: email.replace(&['&', '='][..], ""),
+            uid: 10,
+            role: UserRole::User,
+        }
+    }
+
+    pub fn encrypted_profile_from(email: &str) -> Vec<u8> {
+        let user = UserProfile {
+            email: email.replace(&['&', '='][..], ""),
+            uid: 10,
+            role: UserRole::User,
+        };
+        user.encrypt(&encryption_key()).unwrap()
+    }
 }
 
 #[derive(Debug)]

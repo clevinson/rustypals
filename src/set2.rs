@@ -14,26 +14,25 @@ fn exercise_9() {
 }
 
 #[test]
-fn test_cbc_encryption() {
-    use super::cipher::aes;
-
-    let msg = String::from("Testing that things thing works...");
-    let key = b"YELLOW SUBMARINE";
-
-    let encrypted_msg = aes::cbc_encrypt(key, &[0; 16], msg.as_bytes()).unwrap();
-
-    let decrypted_msg = aes::cbc_decrypt(key, &[0; 16], &encrypted_msg).unwrap();
-
-    assert_eq!(msg.as_bytes(), decrypted_msg.as_slice());
-}
-
-#[test]
 fn exercise_10() {
     use crate::cipher::aes;
     use crate::utils;
 
     use std::fs::File;
     use std::io::Read;
+
+    fn test_cbc_encryption() {
+    
+        let msg = String::from("Testing that things thing works...");
+        let key = b"YELLOW SUBMARINE";
+    
+        let encrypted_msg = aes::cbc_encrypt(key, &[0; 16], msg.as_bytes()).unwrap();
+    
+        let decrypted_msg = aes::cbc_decrypt(key, &[0; 16], &encrypted_msg).unwrap();
+    
+        assert_eq!(msg.as_bytes(), decrypted_msg.as_slice());
+    }
+
 
     let cyphertext = utils::read_and_decode_base64_file("data/10.txt").unwrap();
     let key = b"YELLOW SUBMARINE";
@@ -44,11 +43,12 @@ fn exercise_10() {
     let mut funky_lyrics = String::new();
     file.read_to_string(&mut funky_lyrics).unwrap();
 
-    assert_eq!(funky_lyrics, String::from_utf8(decrypted_msg).unwrap());
-}
 
-pub fn test_exercise() {
-    println!("run da tests!");
+    // Verify that CBC encyrption & decryption work as expected
+    // (this function has internal assertions)
+    test_cbc_encryption();
+
+    assert_eq!(funky_lyrics, String::from_utf8(decrypted_msg).unwrap());
 }
 
 #[test]
@@ -88,12 +88,14 @@ fn exercise_12() {
 
 #[test]
 fn exercise_13() {
-    use crate::user_profile::{UserProfile, UserRole};
+    use crate::user_profile::{UserProfile, UserRole, encryption_key};
+    use crate::crack::user_profile::make_encrypted_admin;
     use std::str::FromStr;
 
     let input_str = "email=foobar@baz.com&uid=23&role=admin";
     let profile = UserProfile::from_str(input_str).unwrap();
 
+    // verify that parsing of UserProfile from &str works as expected
     assert_eq!(
         profile,
         UserProfile {
@@ -103,4 +105,19 @@ fn exercise_13() {
         }
     );
 
+    // verify that serialization of UserProfile to String works as expected
+    assert_eq!(profile.to_string(), input_str);
+
+    let key = encryption_key();
+
+    // verify that encryption & decryption of profiles work as expected
+    let encrypted_profile = profile.encrypt(&key).unwrap();
+    let decryped_profile = UserProfile::decrypt(&key, &encrypted_profile).unwrap();
+    assert_eq!(profile, decryped_profile);
+
+
+    // make me an admin!
+    let encrypted_admin = make_encrypted_admin();
+    let admin_profile = UserProfile::decrypt(&key, &encrypted_admin).unwrap();
+    assert_eq!(admin_profile.role, UserRole::Admin);
 }

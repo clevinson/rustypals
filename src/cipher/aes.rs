@@ -15,20 +15,30 @@ pub fn pkcs7_pad(bytes: &[u8], blocksize: usize) -> Vec<u8> {
     return result;
 }
 
-fn pkcs7_unpad(bytes: &mut Vec<u8>, blocksize: usize) -> usize {
-    // clean up and do better error handling here (Should return custom Error!)
-    assert_eq!(bytes.len() % blocksize, 0);
-    assert_ne!(bytes.len(), 0);
+pub fn pkcs7_unpad(bytes: &[u8], blocksize: usize) -> Option<Vec<u8>> {
+    // return none if bytes is not multiple of blocksize
+    if !(bytes.len() % blocksize == 0 && bytes.len() != 0) {
+        return None
+    }
 
-    let pad_length = *bytes.last().unwrap() as usize;
-    assert!(bytes.len() > pad_length);
+    let mut bytes = bytes.to_vec();
 
-    let pad_slice = bytes.split_off(bytes.len() - pad_length);
+    let last_byte = *bytes.last()? as usize;
 
-    assert_eq!(pad_slice, vec![pad_length as u8; pad_length]);
+    if !(bytes.len() > last_byte && last_byte <= blocksize) {
+        return None
+    }
 
-    pad_length
+    let pad_slice = bytes.split_off(bytes.len() - last_byte);
+
+    if pad_slice == vec![last_byte as u8; last_byte] {
+        return Some(bytes)
+    } else {
+        return None
+    }
 }
+
+
 
 fn aes_128_ecb(mode: Mode, key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     let cipher = Cipher::aes_128_ecb();
@@ -48,8 +58,8 @@ pub fn ecb_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
 }
 
 pub fn ecb_decrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-    let mut result = aes_128_ecb(Mode::Decrypt, key, data)?;
-    pkcs7_unpad(&mut result, AES_BLOCK_SIZE);
+    let padded_result = aes_128_ecb(Mode::Decrypt, key, data)?;
+    let result = pkcs7_unpad(&padded_result, AES_BLOCK_SIZE).expect("Decrypted text should be PKCS7 padded");
     Ok(result)
 }
 
@@ -91,7 +101,7 @@ pub fn cbc_decrypt(key: &[u8], iv: &[u8], msg: &[u8]) -> Result<Vec<u8>, ErrorSt
         decrypted_msg.append(&mut xord_and_decrypted);
     }
 
-    pkcs7_unpad(&mut decrypted_msg, 16);
+    decrypted_msg = pkcs7_unpad(&decrypted_msg, 16).expect("Decrypted message should be PKCS7 padded");
 
     return Ok(decrypted_msg);
 }

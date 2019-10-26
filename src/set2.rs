@@ -57,13 +57,30 @@ fn exercise_11() {
     assert_eq!(prob_ecb, CipherMode::ECB);
     assert_eq!(prob_cbc, CipherMode::CBC);
 }
+//
+// blackbox encryption for exercise_12
+
+// blackbox encryption for exercise_14
 
 #[test]
 fn exercise_12() {
+    use crate::cipher::aes::ecb_encrypt;
     use crate::crack::aes::{
-        blackbox_ecb, crack_aes_ecb, detect_cipher_mode, get_ecb_blackbox_metadata, CipherMode,
-        ECBBlackboxMetadata,
+        crack_aes_ecb, detect_cipher_mode, deterministic_key, get_ecb_blackbox_metadata,
+        CipherMode, ECBBlackboxMetadata,
     };
+    use openssl::error::ErrorStack;
+
+    pub fn blackbox_ecb(attacker_str: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+        let key = deterministic_key(16, 23422);
+        let msg_to_decode = base64::decode("\
+            Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaG\
+            FpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0\
+            IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap();
+        let mut msg_with_attacker_str = attacker_str.to_owned();
+        msg_with_attacker_str.extend(&msg_to_decode);
+        ecb_encrypt(&key, &msg_with_attacker_str)
+    }
 
     let ECBBlackboxMetadata { blocksize, .. } = get_ecb_blackbox_metadata(blackbox_ecb).unwrap();
     assert_eq!(blocksize, 16);
@@ -118,7 +135,29 @@ fn exercise_13() {
 
 #[test]
 fn exercise_14() {
-    use crate::crack::aes::{blackbox_ecb_with_prefix, crack_aes_ecb};
+    use crate::cipher::aes::ecb_encrypt;
+    use crate::crack::aes::{crack_aes_ecb, deterministic_key};
+    use openssl::error::ErrorStack;
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+
+    pub fn blackbox_ecb_with_prefix(attacker_bytes: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+        const RAND_SEED: u64 = 211;
+        let mut rng: StdRng = SeedableRng::seed_from_u64(RAND_SEED);
+
+        let key = deterministic_key(16, RAND_SEED);
+        let msg_to_decode = base64::decode("\
+            Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjY\
+            W4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQ\
+            pEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap();
+
+        let mut msg_with_prefix: Vec<u8> =
+            (0..rng.gen_range(5, 50)).map(|_| rng.gen::<u8>()).collect();
+
+        msg_with_prefix.extend(attacker_bytes);
+        msg_with_prefix.extend(msg_to_decode);
+        ecb_encrypt(&key, &msg_with_prefix)
+    }
 
     let cracked_bytes = crack_aes_ecb(blackbox_ecb_with_prefix).unwrap();
     let cracked_msg = String::from_utf8(cracked_bytes).unwrap();
@@ -132,16 +171,26 @@ fn exercise_14() {
 
 #[test]
 fn exercise_15() {
-    use crate::cipher::aes::pkcs7_unpad;
+    use crate::cipher::aes::{pkcs7_unpad, InvalidPaddingError};
 
     let str1 = b"ICE ICE BABY\x04\x04\x04\x04";
-    assert_eq!(pkcs7_unpad(str1, 16), Some(b"ICE ICE BABY".to_vec()));
+    assert_eq!(pkcs7_unpad(str1, 16), Ok(b"ICE ICE BABY".to_vec()));
 
     let str2 = b"ICE ICE BABY\x05\x05\x05\x05";
-    assert_eq!(pkcs7_unpad(str2, 16), None);
+    assert_eq!(pkcs7_unpad(str2, 16), Err(InvalidPaddingError));
 
     let str3 = b"ICE ICE BABY\x01\x02\x03\x04";
-    assert_eq!(pkcs7_unpad(str3, 16), None);
+    assert_eq!(pkcs7_unpad(str3, 16), Err(InvalidPaddingError));
+
+    let str4 = vec![
+        65, 65, 65, 65, 65, 65, 65, 65, 66, 66, 66, 66, 66, 66, 66, 0,
+    ];
+    assert_eq!(pkcs7_unpad(&str4, 16), Err(InvalidPaddingError));
+
+    let str5 = vec![
+        65, 65, 65, 65, 65, 65, 65, 65, 66, 66, 66, 66, 66, 66, 66, 66,
+    ];
+    assert_eq!(pkcs7_unpad(&str5, 16), Err(InvalidPaddingError));
 }
 
 #[test]
@@ -153,9 +202,7 @@ fn exercise_16() {
     fn is_admin(key: &[u8], iv: &[u8], encrypted_str: &[u8]) -> bool {
         let decrypted_bytes =
             cbc_decrypt(key, iv, encrypted_str).expect("Should be able to decrypt cyphertext");
-        let decrypted_str = String::from_utf8_lossy(
-            &decrypted_bytes
-        );
+        let decrypted_str = String::from_utf8_lossy(&decrypted_bytes);
 
         decrypted_str
             .split(";")
@@ -176,7 +223,6 @@ fn exercise_16() {
         )
     }
 
-
     let mut attacker_vec = vec![b'0'; 16];
     attacker_vec.extend(":admin<true".as_bytes());
     let attacker_str = String::from_utf8(attacker_vec).unwrap();
@@ -189,14 +235,18 @@ fn exercise_16() {
 
     let encrypted_user = cbc_encrypt(&key, &iv, &user_str.as_bytes()).unwrap();
 
-    let bitflipped: Vec<u8> = encrypted_user.iter().enumerate().map(|(i,&val)| {
-        // bitflip so the ':' and '<' chars in the plaintext become ';' and '='
-        if i == 32 || i == 38 {
-            val ^ 1
-        } else {
-            val
-        }
-    }).collect();
+    let bitflipped: Vec<u8> = encrypted_user
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| {
+            // bitflip so the ':' and '<' chars in the plaintext become ';' and '='
+            if i == 32 || i == 38 {
+                val ^ 1
+            } else {
+                val
+            }
+        })
+        .collect();
 
     assert_eq!(is_admin(&key, &iv, &bitflipped), true);
 }

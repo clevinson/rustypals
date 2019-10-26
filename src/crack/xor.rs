@@ -1,7 +1,7 @@
 use crate::cipher::xor::{repeated_key_xor, single_char_xor};
-use crate::error::AppError;
 use crate::utils::ByteArray;
 use bit_vec::BitVec;
+use failure::{format_err, Error, ResultExt};
 use itertools::Itertools;
 use std::cmp::Ordering::Equal;
 use std::collections::HashMap;
@@ -70,8 +70,10 @@ pub fn get_english_distance(msg: &str) -> f32 {
     return summed_scores.sqrt();
 }
 
-pub fn break_single_char_xor(cyphertext: &[u8]) -> Option<ScoredString> {
-    let mut scores: Vec<ScoredString> = (b' '..b'~' + 1)
+pub fn break_single_char_xor(cyphertext: &[u8]) -> Result<ScoredString, Error> {
+    let start_byte = b' ';
+    let end_byte = b'~';
+    let mut scores: Vec<ScoredString> = (start_byte..=end_byte)
         .filter_map(|key| {
             let decrypted_bytes = single_char_xor(cyphertext, key);
             String::from_utf8(decrypted_bytes)
@@ -87,9 +89,9 @@ pub fn break_single_char_xor(cyphertext: &[u8]) -> Option<ScoredString> {
     scores.sort_by(|s1, s2| s1.score.partial_cmp(&s2.score).unwrap_or(Equal));
 
     if scores.len() == 0 {
-        return None;
+        return Err(format_err!("Error breaking single_char_xor: Failed to find valid UTF8 plaintext with any key in {:?}..{:?}", start_byte as char, end_byte as char));
     } else {
-        return Some(scores[0].clone());
+        return Ok(scores[0].clone());
     }
 }
 
@@ -129,7 +131,7 @@ fn find_key_size(data: &[u8], min_key_size: usize, max_key_size: usize) -> usize
     scorings[0].0
 }
 
-pub fn break_repeating_key_xor(cyphertext: &[u8]) -> Result<(String, Vec<u8>), AppError> {
+pub fn break_repeating_key_xor(cyphertext: &[u8]) -> Result<(String, Vec<u8>), Error> {
     let key_size = find_key_size(&cyphertext, 1, 50);
 
     // create a series of n transposed cyphertexts, where each new cyphertext
@@ -153,9 +155,12 @@ pub fn break_repeating_key_xor(cyphertext: &[u8]) -> Result<(String, Vec<u8>), A
         .map(|tc| {
             break_single_char_xor(tc)
                 .map(|result| result.key)
-                .expect({ &format!("Cannot decrypt {:?} with break_single_char_xor", tc) })
+                .context(format!(
+                    "Cannot decrypt {:?} with break_single_char_xor",
+                    tc
+                ))
         })
-        .collect::<String>();
+        .collect::<Result<String,_>>()?;
 
     let decrypted_msg = repeated_key_xor(cyphertext, &key.as_bytes().to_vec());
 

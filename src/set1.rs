@@ -34,45 +34,38 @@ fn exercise_4() {
     use std::io::prelude::*;
     use std::io::BufReader;
 
-    let filename = "data/4.txt";
+    let f = File::open("data/4.txt").unwrap();
+    let file_reader = BufReader::new(f);
 
-    match File::open(filename) {
-        Err(_) => println!("[Error] Failed to read file: {}", filename),
-        Ok(f) => {
-            let file_reader = BufReader::new(f);
+    let mut line_number = 0;
 
-            let mut line_number = 0;
+    let mut candidates = file_reader
+        .lines()
+        .filter_map(|line| {
+            line_number += 1;
 
-            let mut candidates = file_reader
-                .lines()
-                .filter_map(|line| {
-                    line_number += 1;
+            let hex_str = line.unwrap();
 
-                    let hex_str = line.unwrap();
+            let encrypted_bytes = hex::decode(&hex_str).unwrap();
 
-                    let encrypted_bytes = hex::decode(&hex_str).unwrap();
+            break_single_char_xor(&encrypted_bytes).map(|scored_string| (hex_str, scored_string)).ok()
+        })
+        .collect::<Vec<(String, ScoredString)>>();
 
-                    break_single_char_xor(&encrypted_bytes)
-                        .map(|scored_string| (hex_str, scored_string))
-                })
-                .collect::<Vec<(String, ScoredString)>>();
+    candidates.sort_by(|s1, s2| s1.1.score.partial_cmp(&s2.1.score).unwrap_or(Equal));
 
-            candidates.sort_by(|s1, s2| s1.1.score.partial_cmp(&s2.1.score).unwrap_or(Equal));
+    let winner = &candidates[0];
 
-            let winner = &candidates[0];
+    assert_eq!(
+        winner.0,
+        (String::from("7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f"))
+    );
 
-            assert_eq!(
-                winner.0,
-                (String::from("7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f"))
-            );
-
-            assert_eq!(winner.1.key, '5');
-            assert_eq!(
-                winner.1.decrypted_msg,
-                String::from("Now that the party is jumping\n")
-            );
-        }
-    }
+    assert_eq!(winner.1.key, '5');
+    assert_eq!(
+        winner.1.decrypted_msg,
+        String::from("Now that the party is jumping\n")
+    );
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::ops::BitXor;
-use crate::error::AppError;
+use failure::Error;
 
 #[derive(Debug, PartialEq)]
 pub struct ByteArray(pub Vec<u8>);
@@ -22,7 +22,7 @@ impl BitXor for ByteArray {
 }
 
 
-pub fn read_and_decode_base64_file(filename: &str) -> Result<Vec<u8>, AppError> {
+pub fn read_and_decode_base64_file(filename: &str) -> Result<Vec<u8>, Error> {
     let f = File::open(filename)?;
 
     let file_reader = BufReader::new(f);
@@ -36,4 +36,19 @@ pub fn read_and_decode_base64_file(filename: &str) -> Result<Vec<u8>, AppError> 
     let bytes = base64::decode(&data)?;
 
     Ok(bytes)
+}
+
+pub fn read_and_decode_base64_lines(filename: &str) -> Result<Vec<Vec<u8>>, Error> {
+    let f = File::open(filename)?;
+
+    let file_reader = BufReader::new(f);
+
+    let mut data = Vec::new();
+
+    for line in file_reader.lines() {
+        let bytes = base64::decode(&line?)?;
+        data.push(bytes);
+    }
+
+    Ok(data)
 }

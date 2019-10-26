@@ -1,6 +1,7 @@
-use crate::cipher::aes::{cbc_encrypt, ecb_encrypt, AES_BLOCK_SIZE};
+use crate::cipher::aes::{cbc_encrypt, ecb_encrypt, pkcs7_unpad, AES_BLOCK_SIZE, CipherError};
 use itertools::Itertools;
 use openssl::error::ErrorStack;
+use failure::{Error, format_err};
 use rand::prelude::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -51,29 +52,6 @@ pub fn prob_ecb_encrypted(data: &[u8]) -> bool {
     unique_blocks.len() < blocks.len()
 }
 
-// blackbox encryption for exercise_12
-pub fn blackbox_ecb(attacker_str: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-    let key = deterministic_key(16, 23422);
-    let msg_to_decode = base64::decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap();
-    let mut msg_with_attacker_str = attacker_str.to_owned();
-    msg_with_attacker_str.extend(&msg_to_decode);
-    ecb_encrypt(&key, &msg_with_attacker_str)
-}
-
-// blackbox encryption for exercise_14
-pub fn blackbox_ecb_with_prefix(attacker_bytes: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-    const RAND_SEED: u64 = 211;
-    let mut rng: StdRng = SeedableRng::seed_from_u64(RAND_SEED);
-
-    let key = deterministic_key(16, RAND_SEED);
-    let msg_to_decode = base64::decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap();
-
-    let mut msg_with_prefix: Vec<u8> = (0..rng.gen_range(5, 50)).map(|_| rng.gen::<u8>()).collect();
-
-    msg_with_prefix.extend(attacker_bytes);
-    msg_with_prefix.extend(msg_to_decode);
-    ecb_encrypt(&key, &msg_with_prefix)
-}
 
 pub fn detect_cipher_mode(
     blackbox: fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
@@ -282,4 +260,76 @@ pub fn crack_aes_ecb(
 
         prefixed_result.push(next_byte);
     }
+}
+
+
+pub fn crack_aes_cbc(
+    iv: &[u8],
+    cyphertext: &[u8],
+    padding_oracle: fn(iv: &[u8], cyphertext: &[u8]) -> Result<bool,CipherError>,
+) -> Result<Vec<u8>, Error> {
+
+    fn crack_single_block(
+        iv: &[u8],
+        cyphertext: &[u8],
+        padding_is_valid: fn(&[u8], &[u8]) -> Result<bool,CipherError>,
+    ) -> Result<Vec<u8>, Error> {
+        let mut iv = iv.to_owned();
+        let mut found_chars: Vec<u8> = Vec::new();
+
+        fn update_padding_slice(slice: &mut [u8], old_val: u8, new_val: u8) {
+            for x in slice.iter_mut() {
+                *x ^= old_val ^ new_val;
+            }
+        }
+
+        'outer: for byte_index in (0..16).rev() {
+            let padding_val = 16 - byte_index as u8;
+
+            for byte_guess in 0..=255 {
+                // first guess all bytes, excluding the
+                // padding_val we are looking for
+                if padding_val == byte_guess {
+                    continue;
+                }
+                // xor byte by padding_val and our byte_guess
+                iv[byte_index] ^= padding_val ^ byte_guess;
+                if padding_is_valid(&iv, cyphertext)? {
+                    found_chars.push(byte_guess);
+                    update_padding_slice(&mut iv[byte_index..], padding_val, padding_val + 1);
+                    continue 'outer;
+                }
+                // undo xor
+                iv[byte_index] ^= padding_val ^ byte_guess;
+            }
+            // if we still haven't found anything yet
+            // try without any bitflipping at all,
+            // aka byte_guess == padding_val
+            if padding_is_valid(&iv, cyphertext)? {
+                found_chars.push(padding_val);
+                update_padding_slice(&mut iv[byte_index..], padding_val, padding_val + 1);
+            } else {
+                return Err(format_err!("Could not guess byte for creating valid padding"));
+            }
+        }
+
+        found_chars.reverse();
+
+        Ok(found_chars)
+    }
+
+    let mut cyphertext_with_iv = iv.to_vec();
+
+    cyphertext_with_iv.extend(cyphertext);
+
+    let padded_bytes = cyphertext_with_iv
+        .chunks(16)
+        .collect::<Vec<_>>()
+        .windows(2)
+        .flat_map(|pair| crack_single_block(pair[0], pair[1], padding_oracle).unwrap())
+        .collect::<Vec<u8>>();
+
+    let plaintext = pkcs7_unpad(&padded_bytes, 16)?;
+
+    Ok(plaintext)
 }

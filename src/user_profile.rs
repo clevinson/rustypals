@@ -1,6 +1,5 @@
-use crate::cipher::aes::{ecb_decrypt, ecb_encrypt};
+use crate::cipher::aes::{ecb_decrypt, ecb_encrypt, CipherError};
 use crate::crack::aes::deterministic_key;
-use openssl::error::ErrorStack;
 use std::error;
 use std::fmt;
 use std::str::FromStr;
@@ -39,7 +38,7 @@ impl UserProfile {
         .join("&")
     }
 
-    pub fn encrypt(&self, aes_key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+    pub fn encrypt(&self, aes_key: &[u8]) -> Result<Vec<u8>, CipherError> {
         let data = self.to_string();
         ecb_encrypt(aes_key, data.as_bytes())
     }

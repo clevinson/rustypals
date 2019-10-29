@@ -64,14 +64,13 @@ fn exercise_11() {
 
 #[test]
 fn exercise_12() {
-    use crate::cipher::aes::ecb_encrypt;
+    use crate::cipher::aes::{ecb_encrypt, CipherError};
     use crate::crack::aes::{
         crack_aes_ecb, detect_cipher_mode, deterministic_key, get_ecb_blackbox_metadata,
         CipherMode, ECBBlackboxMetadata,
     };
-    use openssl::error::ErrorStack;
 
-    pub fn blackbox_ecb(attacker_str: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+    pub fn blackbox_ecb(attacker_str: &[u8]) -> Result<Vec<u8>, CipherError> {
         let key = deterministic_key(16, 23422);
         let msg_to_decode = base64::decode("\
             Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaG\
@@ -135,13 +134,12 @@ fn exercise_13() {
 
 #[test]
 fn exercise_14() {
-    use crate::cipher::aes::ecb_encrypt;
+    use crate::cipher::aes::{ecb_encrypt, CipherError};
     use crate::crack::aes::{crack_aes_ecb, deterministic_key};
-    use openssl::error::ErrorStack;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
 
-    pub fn blackbox_ecb_with_prefix(attacker_bytes: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+    pub fn blackbox_ecb_with_prefix(attacker_bytes: &[u8]) -> Result<Vec<u8>, CipherError> {
         const RAND_SEED: u64 = 211;
         let mut rng: StdRng = SeedableRng::seed_from_u64(RAND_SEED);
 

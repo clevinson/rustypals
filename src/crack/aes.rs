@@ -1,7 +1,6 @@
 use crate::cipher::aes::{cbc_encrypt, ecb_encrypt, pkcs7_unpad, AES_BLOCK_SIZE, CipherError};
 use itertools::Itertools;
-use openssl::error::ErrorStack;
-use failure::{Error, format_err};
+use failure::{Error, format_err, ResultExt};
 use rand::prelude::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -24,7 +23,7 @@ pub fn deterministic_key(key_size: usize, seed: u64) -> Vec<u8> {
     (0..key_size).map(|_| rng.gen::<u8>()).collect()
 }
 
-pub fn encryption_oracle_in_mode(mode: CipherMode, msg: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn encryption_oracle_in_mode(mode: CipherMode, msg: &[u8]) -> Result<Vec<u8>, CipherError> {
     let mut rng = rand::thread_rng();
 
     let key = random_key(16);
@@ -54,8 +53,8 @@ pub fn prob_ecb_encrypted(data: &[u8]) -> bool {
 
 
 pub fn detect_cipher_mode(
-    blackbox: fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
-) -> Result<CipherMode, ErrorStack> {
+    blackbox: fn(&[u8]) -> Result<Vec<u8>, CipherError>,
+) -> Result<CipherMode, CipherError> {
     let data = blackbox(&vec![0; 128])?;
 
     if prob_ecb_encrypted(&data) {
@@ -76,10 +75,10 @@ pub struct ECBBlackboxMetadata {
 // illustrating why a given portion of the metadata
 // calculation failed
 pub fn get_ecb_blackbox_metadata(
-    blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
+    blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
 ) -> Option<ECBBlackboxMetadata> {
     fn get_first_varying_block_idx(
-        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
+        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
     ) -> Option<usize> {
         let bb_output = blackbox(&[b'0']).unwrap();
         let mut first_varying_block_idx = None;
@@ -111,7 +110,7 @@ pub fn get_ecb_blackbox_metadata(
     // find what size of attacker_str will fill the rest of the
     // first varying block in cyphertext
     fn get_blockbreak_input_len(
-        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
+        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
         // vbi = index of the first varying block (in blackbox's output)
         vbi: usize,
     ) -> Option<usize> {
@@ -130,7 +129,7 @@ pub fn get_ecb_blackbox_metadata(
     }
 
     fn get_blocksize(
-        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
+        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
         vbi: usize,
         blockbreak_input_len: usize,
     ) -> Option<usize> {
@@ -176,8 +175,8 @@ pub fn get_ecb_blackbox_metadata(
 }
 
 pub fn crack_aes_ecb(
-    blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
-) -> Result<Vec<u8>, ErrorStack> {
+    blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
+) -> Result<Vec<u8>, CipherError> {
     // given:
     // - an attacker-controlled-string (prefix) of blocksize-1 length
     // - a blackbox ECB cipher
@@ -189,7 +188,7 @@ pub fn crack_aes_ecb(
         attacker_str_idx: &usize,
         prebuffer_len: &usize,
         prefix: &[u8],
-        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, ErrorStack>,
+        blackbox: impl Fn(&[u8]) -> Result<Vec<u8>, CipherError>,
         target: &[u8],
     ) -> Option<u8> {
         let mut prefix = prefix.to_vec();
@@ -329,7 +328,7 @@ pub fn crack_aes_cbc(
         .flat_map(|pair| crack_single_block(pair[0], pair[1], padding_oracle).unwrap())
         .collect::<Vec<u8>>();
 
-    let plaintext = pkcs7_unpad(&padded_bytes, 16)?;
+    let plaintext = pkcs7_unpad(&padded_bytes, 16).context("Decrypted ciphertext, but resulting plaintext is not PKCS7 padded, maybe bad padding_oracle?")?;
 
     Ok(plaintext)
 }

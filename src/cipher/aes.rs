@@ -74,19 +74,18 @@ fn aes_128_ecb(mode: Mode, key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStac
     Ok(out)
 }
 
-pub fn ecb_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn ecb_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, CipherError> {
     let padded_data = pkcs7_pad(data, AES_BLOCK_SIZE);
-    aes_128_ecb(Mode::Encrypt, key, &padded_data)
+    aes_128_ecb(Mode::Encrypt, key, &padded_data).map_err(CipherError::from)
 }
 
-pub fn ecb_decrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn ecb_decrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>, CipherError> {
     let padded_result = aes_128_ecb(Mode::Decrypt, key, data)?;
-    let result =
-        pkcs7_unpad(&padded_result, AES_BLOCK_SIZE).expect("Decrypted text should be PKCS7 padded");
+    let result = pkcs7_unpad(&padded_result, AES_BLOCK_SIZE)?;
     Ok(result)
 }
 
-pub fn cbc_encrypt(key: &[u8], iv: &[u8], msg: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn cbc_encrypt(key: &[u8], iv: &[u8], msg: &[u8]) -> Result<Vec<u8>, CipherError> {
     let padded_msg = pkcs7_pad(msg, AES_BLOCK_SIZE);
 
     let mut prev_encrypted = iv.to_vec();

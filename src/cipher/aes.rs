@@ -123,7 +123,30 @@ pub fn cbc_decrypt(key: &[u8], iv: &[u8], msg: &[u8]) -> Result<Vec<u8>, CipherE
         decrypted_msg.append(&mut xord_and_decrypted);
     }
 
-    decrypted_msg = pkcs7_unpad(&decrypted_msg, 16)?;
+    decrypted_msg = pkcs7_unpad(&decrypted_msg, AES_BLOCK_SIZE)?;
 
     return Ok(decrypted_msg);
+}
+
+pub fn ctr_cipher(key: &[u8], nonce: u64, cyphertext: &[u8]) -> Vec<u8> {
+    let nonce_bytes = nonce.to_le_bytes();
+
+    cyphertext
+        .chunks(AES_BLOCK_SIZE)
+        .enumerate()
+        .flat_map(|(i, chunk)| {
+            let mut keystream_input = nonce_bytes.to_vec();
+            keystream_input.append(&mut (i as u64).to_le_bytes().to_vec());
+
+            let keystream = ecb_encrypt(key, &keystream_input).unwrap();
+
+            let encrypted_chunk: Vec<u8> = chunk
+                .iter()
+                .enumerate()
+                .map(|(i, byte)| byte ^ keystream[i])
+                .collect();
+
+            encrypted_chunk
+        })
+        .collect::<Vec<u8>>()
 }

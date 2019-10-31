@@ -1,13 +1,13 @@
 use hex;
 
-#[allow(dead_code)]
-pub fn ex2() {
+#[test]
+pub fn exercise_2() {
     use crate::utils::ByteArray;
     let bytes1 = hex::decode("1c0111001f010100061a024b53535009181c").unwrap();
     let bytes2 = hex::decode("686974207468652062756c6c277320657965").unwrap();
 
     let ByteArray(result) = ByteArray(bytes1) ^ ByteArray(bytes2);
-    println!("The final result: {} ", hex::encode(result));
+    assert_eq!("746865206b696420646f6e277420706c6179", hex::encode(result));
 }
 
 #[test]
@@ -18,10 +18,10 @@ fn exercise_3() {
 
     let encrypted_bytes = hex::decode(hex_str).unwrap();
 
-    let result = break_single_char_xor(&encrypted_bytes).unwrap();
+    let result = break_single_char_xor(&encrypted_bytes, None).unwrap();
 
     assert_eq!(
-        (result.key, result.decrypted_msg),
+        (result.key as char, result.decrypted_msg),
         ('X', String::from("Cooking MC's like a pound of bacon"))
     );
 }
@@ -48,7 +48,7 @@ fn exercise_4() {
 
             let encrypted_bytes = hex::decode(&hex_str).unwrap();
 
-            break_single_char_xor(&encrypted_bytes).map(|scored_string| (hex_str, scored_string)).ok()
+            break_single_char_xor(&encrypted_bytes, None).map(|scored_string| (hex_str, scored_string)).ok()
         })
         .collect::<Vec<(String, ScoredString)>>();
 
@@ -61,7 +61,7 @@ fn exercise_4() {
         (String::from("7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f"))
     );
 
-    assert_eq!(winner.1.key, '5');
+    assert_eq!(winner.1.key as char, '5');
     assert_eq!(
         winner.1.decrypted_msg,
         String::from("Now that the party is jumping\n")
@@ -94,8 +94,6 @@ fn exercise_6() {
     let mut file = File::open("data/funky-lyrics.txt").unwrap();
     let mut cracked_text = String::new();
     file.read_to_string(&mut cracked_text).unwrap();
-
-    println!("Big file: {} bytes to be exact!", data.len());
 
     assert_eq!(message_str, cracked_text);
 }
